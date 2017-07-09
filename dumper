@@ -1,0 +1,13 @@
+#!/usr/bin/perl
+#
+
+use lib "./lib";
+use Device::AirscapeGen2WHF;
+use Data::Dumper qw(Dumper);
+
+
+my $whf = Device::AirscapeGen2WHF->new(host=>"192.168.8.105");
+
+my $data = $whf->query();
+print Dumper($data);
+exit;
