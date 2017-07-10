@@ -149,19 +149,18 @@ sub _decode {
   }
   $state{querytime} = time;
 
-  if ($state{fanspd} > 0 && $state{power} > 0) {
+  if ( $state{fanspd} > 0 && $state{power} > 0 ) {
     $state{coolingpower} = floor( $state{inside} - $state{oa_temp} ) * 1.08 * $state{cfm};    #BTUh
     $state{cfmperwatt}   = $state{cfm} / $state{power};
     $state{EER}          = floor( $state{coolingpower} / $state{power} );
   } else {
-    $state{coolingpower}=0;
-    $state{cfmperwatt}=0;
-    $state{EER}=0;
+    $state{coolingpower} = 0;
+    $state{cfmperwatt}   = 0;
+    $state{EER}          = 0;
   }
 
   return ( \%state );
 }
-
 
 =head2 speedup
 
@@ -179,7 +178,6 @@ sub speedup {
 
   return ( $self->_decode( \@content ) );
 }
-
 
 =head2 speeddown
 
@@ -259,20 +257,20 @@ Set the fan setpoint speed to $speed, which may be an integer between 0 and 10. 
 =cut
 
 sub setSpeed {
-  my $self = shift;
+  my $self  = shift;
   my $speed = floor(shift);
 
-  return if ($speed < 0 || $speed > 10);
-  if ($speed == 0) {
+  return if ( $speed < 0 || $speed > 10 );
+  if ( $speed == 0 ) {
     $self->stop();
     return;
   }
   my $status = $self->query();
-  while (($status->{setpoint} + 0) != $speed) {
-    if (($status->{setpoint} + 0) < $speed) {
+  while ( ( $status->{setpoint} + 0 ) != $speed ) {
+    if ( ( $status->{setpoint} + 0 ) < $speed ) {
       $self->speedup();
     }
-    if (($status->{setpoint} + 0) > $speed) {
+    if ( ( $status->{setpoint} + 0 ) > $speed ) {
       $self->speeddown();
     }
     sleep(1);
@@ -281,7 +279,6 @@ sub setSpeed {
 
   return;
 }
-
 
 =head1 AUTHOR
 
