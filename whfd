@@ -1,0 +1,112 @@
+#!/usr/bin/perl
+#
+
+# Whole house fan daemon
+#
+
+use Data::Dumper qw(Dumper);
+use Sys::Syslog;
+use Proc::Daemon;
+use Proc::PID::File;
+use Device::AirscapeGen2WHF;
+use DBD::SQLite;
+
+my $daemonize       = 1;
+my $pidfile         = "/run/whfd/whfd.pid";
+my $targetInside    = 62;                                                              #°F
+my $MainLoopRate    = 600;                                                             # sec
+my $lastState       = undef;
+my $fanState        = undef;
+my $currentMaxSpeed = 10;
+my $fanAddr         = "192.168.8.105";
+my $weewx           = "/var/lib/weewx/weewx.sdb";
+my $outTempSQL      = "select outTemp from archive order by dateTime desc limit 1;";
+
+if ($daemonize) {
+
+  #Daemonize, make sure we've got a writable directory for the pid file....
+  if ( !-d dirname($pidfile) ) {
+    make_path( dirname($pidfile) );
+  }
+  chown( 65534, 65534, dirname($pidfile) );
+  chmod( 0777, dirname($pidfile) );
+
+  # If already running, then exit (/var/run/basename($0).pid)
+  if ( Proc::PID::File->running( dir => dirname($pidfile) ) ) {
+    exit(0);
+  }
+
+  #Proc::Daemon::Init( { setuid => 65534, setgid => 65534, pid_file => $pidfile } );
+  Proc::Daemon::Init( { pid_file => $pidfile } );
+}
+
+#Get a connection to the fan ...
+#
+my $whf = Device->AirscapeGen2WHF->new( host => $fanAddr );
+
+$lastState = $whf->query();
+
+my $wee = DBI->connect(
+  "dbi::SQLite::dbname=$weewx",
+  "", "",
+  {
+    sqlite_open_flags => SQLITE_OPEN_READONLY,
+  }
+);
+
+#####
+# M A I N   L O O P
+#####
+while (1) {
+  $fanState = $whf->query();
+
+  if ( $fanState->{setpoint} == 0 ) { goto IDLE; }
+  if ( $fanState->{setpoint} != $lastState->{setPoint} ) {
+
+    #Somebody adjusted the speed. That's the new max ...
+    $currentMaxSpeed = $fanState->{setpoint};
+  }
+
+  my $speed = calcSpeed( $fanState->{inside}, getOutDoorTemp() );
+  if ( $speed != $fanState->{setpoint} ) {
+    $lastState = $whf->setSpeed($speed);
+  }
+
+IDLE:
+  sleep($MainLoopRate);
+}
+
+sub calcSpeed {
+  my $indoor  = shift;
+  my $outdoor = shift;
+
+  if ( $indoor <= $targetInside ) return (0);
+  if ( $indoor <= $outdoor ) return (0);
+
+  if ( $currentMaxSpeed > 8 && inQuietHrs() && ( $indoor < 75 ) ) {
+    $currentMaxSpeed = 8;
+  }
+
+  if ( $indoor >= 72 ) return ($currentMaxSpeed);
+  my $speed = int( $indoor - $targetInside * 2 );
+  $speed = ( $speed <= 0 ) ? 0 : $speed;
+  $speed = ( $speed >= $currentMaxSpeed ) ? $currentMaxSpeed : $speed;
+  return ($speed);
+}
+
+sub inQuietHrs {
+  my $hr = ( localtime(time) )[2];
+  if ( ( $hr <= 6 ) || ( $hr > 22 ) ) {
+    return (1);
+  }
+  return (0);
+}
+
+sub getOutDoorTemp {
+  my $sth = $wee->prepare($outTempSQL);
+  $sth->execute();
+  my $row  = $sth->fetch;
+  my $temp = $row->[0];
+  return ($temp);
+}
+
