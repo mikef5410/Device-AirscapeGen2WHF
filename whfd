@@ -5,11 +5,12 @@
 #
 
 use Data::Dumper qw(Dumper);
-use Sys::Syslog;
+use Sys::Syslog qw(:standard :macros);
 use Proc::Daemon;
 use Proc::PID::File;
 use Device::AirscapeGen2WHF;
 use DBD::SQLite;
+
 
 my $daemonize       = 1;
 my $pidfile         = "/run/whfd/whfd.pid";
@@ -21,6 +22,9 @@ my $currentMaxSpeed = 10;
 my $fanAddr         = "192.168.8.105";
 my $weewx           = "/var/lib/weewx/weewx.sdb";
 my $outTempSQL      = "select outTemp from archive order by dateTime desc limit 1;";
+
+openlog("whfd","pid","local0");
+syslog("info","whole house fan daemon starting.");
 
 if ($daemonize) {
 
@@ -38,6 +42,7 @@ if ($daemonize) {
 
   #Proc::Daemon::Init( { setuid => 65534, setgid => 65534, pid_file => $pidfile } );
   Proc::Daemon::Init( { pid_file => $pidfile } );
+  syslog("info", "daemonized.");
 }
 
 #Get a connection to the fan ...
@@ -46,9 +51,7 @@ my $whf = Device->AirscapeGen2WHF->new( host => $fanAddr );
 
 $lastState = $whf->query();
 
-my $wee = DBI->connect(
-  "dbi::SQLite::dbname=$weewx",
-  "", "",
+my $wee = DBI->connect("dbi:SQLite:dbname=$weewx","", "",
   {
     sqlite_open_flags => SQLITE_OPEN_READONLY,
   }
@@ -65,11 +68,13 @@ while (1) {
 
     #Somebody adjusted the speed. That's the new max ...
     $currentMaxSpeed = $fanState->{setpoint};
+    syslog("info",sprintf("Adjusted max speed to %d",$currentMaxSpeed));
   }
 
   my $speed = calcSpeed( $fanState->{inside}, getOutDoorTemp() );
   if ( $speed != $fanState->{setpoint} ) {
     $lastState = $whf->setSpeed($speed);
+    syslog("info",sprintf("Auto-Adjusted speed to %d",$speed));
   }
 
 IDLE:
