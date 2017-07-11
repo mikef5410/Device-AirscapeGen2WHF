@@ -10,11 +10,13 @@ use Proc::Daemon;
 use Proc::PID::File;
 use Device::AirscapeGen2WHF;
 use DBD::SQLite;
+use File::Basename;
+use File::Path qw(make_path);
 
 my $daemonize       = 1;
 my $pidfile         = "/run/whfd/whfd.pid";
-my $targetInside    = 62;                                                              #°F
-my $MainLoopRate    = 600;                                                             # sec
+my $targetInside    = 62;       #°F
+my $MainLoopRate    = 600;      # sec
 my $lastState       = undef;
 my $fanState        = undef;
 my $currentMaxSpeed = 10;
@@ -36,27 +38,28 @@ if ($daemonize) {
 
   # If already running, then exit (/var/run/basename($0).pid)
   if ( Proc::PID::File->running( dir => dirname($pidfile) ) ) {
+    syslog("error","whfd already running.");
     exit(0);
   }
 
-  #Proc::Daemon::Init( { setuid => 65534, setgid => 65534, pid_file => $pidfile } );
-  Proc::Daemon::Init( { pid_file => $pidfile } );
+  Proc::Daemon::Init( { setuid => 65534, setgid => 65534, pid_file => $pidfile, work_dir=>"/tmp" } );
+  #Proc::Daemon::Init( { pid_file => $pidfile } );
   syslog( "info", "daemonized." );
 }
 
 #Get a connection to the fan ...
 #
-my $whf = Device->AirscapeGen2WHF->new( host => $fanAddr );
+my $whf = Device::AirscapeGen2WHF->new( host => $fanAddr );
 
 $lastState = $whf->query();
 
 my $wee = DBI->connect(
-  "dbi:SQLite:dbname=$weewx",
-  "", "",
-  {
-    sqlite_open_flags => SQLITE_OPEN_READONLY,
-  }
-);
+                       "dbi:SQLite:dbname=$weewx",
+                       "", "",
+                       {
+                        sqlite_open_flags => SQLITE_OPEN_READONLY,
+                       }
+                      );
 
 #####
 # M A I N   L O O P
@@ -64,68 +67,66 @@ my $wee = DBI->connect(
 while (1) {
   $fanState = $whf->query();
 
-  if ( $fanState->{setpoint} == 0 ) { goto IDLE; }
-
-  if ( $lastState->{setPoint} == 0 && $fanState->{setPoint} != 0 ) {
-
-    #Fan was turned on
-
-    if ( $fanState->{setpoint} != $lastState->{setPoint} ) {
-      if ( $lastState->{setPoint} == 0 ) {
-
-        #Fan was just turned on ...
-        syslog( "info", sprintf( "Someone turned the fan on to speed: %d", $fanState->{setpoint} ) );
-        syslog( "info", sprintf("Max speed adjusted to 10") );
-        $currentMaxSpeed = 10;
-      } else {
-
-        #Somebody adjusted the speed. That's the new max ...
-        $currentMaxSpeed = $fanState->{setpoint};
-        syslog( "info", sprintf( "Adjusted max speed to %d", $currentMaxSpeed ) );
-      }
-    }
-
-    my $speed = calcSpeed( $fanState->{inside}, getOutDoorTemp() );
-    if ( $speed != $fanState->{setpoint} ) {
-      $lastState = $whf->setSpeed($speed);
-      syslog( "info", sprintf( "Auto-Adjusted speed to %d", $speed ) );
-    }
-
-  IDLE:
-    sleep($MainLoopRate);
+  if ( $fanState->{setpoint} == 0 ) {
+    goto IDLE;
   }
 
-  sub calcSpeed {
-    my $indoor  = shift;
-    my $outdoor = shift;
+  if ( $fanState->{setpoint} != $lastState->{setPoint} ) {
+    if ( $lastState->{setPoint} == 0 ) {
 
-    if ( $indoor <= $targetInside ) return (0);
-    if ( $indoor <= $outdoor ) return (0);
+      #Fan was just turned on ...
+      syslog( "info", sprintf( "Someone turned the fan on to speed: %d", $fanState->{setpoint} ) );
+      syslog( "info", sprintf("Max speed adjusted to 10") );
+      $currentMaxSpeed = 10;
+    } else {
 
-    if ( $currentMaxSpeed > 8 && inQuietHrs() && ( $indoor < 75 ) ) {
-      $currentMaxSpeed = 8;
+      #Somebody adjusted the speed. That's the new max ...
+      $currentMaxSpeed = $fanState->{setpoint};
+      syslog( "info", sprintf( "Adjusted max speed to %d", $currentMaxSpeed ) );
     }
-
-    if ( $indoor >= 72 ) return ($currentMaxSpeed);
-    my $speed = int( $indoor - $targetInside * 2 );
-    $speed = ( $speed <= 0 ) ? 0 : $speed;
-    $speed = ( $speed >= $currentMaxSpeed ) ? $currentMaxSpeed : $speed;
-    return ($speed);
   }
 
-  sub inQuietHrs {
-    my $hr = ( localtime(time) )[2];
-    if ( ( $hr <= 6 ) || ( $hr > 22 ) ) {
-      return (1);
-    }
-    return (0);
+  my $speed = calcSpeed( $fanState->{inside}, getOutDoorTemp() );
+  if ( $speed != $fanState->{setpoint} ) {
+    $lastState = $whf->setSpeed($speed);
+    syslog( "info", sprintf( "Auto-Adjusted speed to %d", $speed ) );
   }
 
-  sub getOutDoorTemp {
-    my $sth = $wee->prepare($outTempSQL);
-    $sth->execute();
-    my $row  = $sth->fetch;
-    my $temp = $row->[0];
-    return ($temp);
+ IDLE:
+  sleep($MainLoopRate);
+}
+
+sub calcSpeed {
+  my $indoor  = shift;
+  my $outdoor = shift;
+
+  if ( $indoor <= $targetInside ) { return(0); }
+  if ( $indoor <= $outdoor ) { return(0); }
+
+  if ( $currentMaxSpeed > 8 && inQuietHrs() && ( $indoor < 75 ) ) {
+    $currentMaxSpeed = 8;
   }
+
+  if ( $indoor >= 72 ) { return($currentMaxSpeed); }
+  my $speed = int( $indoor - $targetInside * 2 );
+  $speed = ( $speed <= 0 ) ? 0 : $speed;
+  $speed = ( $speed >= $currentMaxSpeed ) ? $currentMaxSpeed : $speed;
+  return ($speed);
+}
+
+sub inQuietHrs {
+  my $hr = ( localtime(time) )[2];
+  if ( ( $hr <= 6 ) || ( $hr > 22 ) ) {
+    return (1);
+  }
+  return (0);
+}
+
+sub getOutDoorTemp {
+  my $sth = $wee->prepare($outTempSQL);
+  $sth->execute();
+  my $row  = $sth->fetch;
+  my $temp = $row->[0];
+  return ($temp);
+}
 
