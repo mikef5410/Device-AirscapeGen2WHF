@@ -266,11 +266,11 @@ sub setSpeed {
     return;
   }
   my $status = $self->query();
-  while ( ( $status->{setpoint} + 0 ) != $speed ) {
-    if ( ( $status->{setpoint} + 0 ) < $speed ) {
+  while ( ( $status->{fanspd} + 0 ) != $speed ) {
+    if ( ( $status->{fanspd} + 0 ) < $speed ) {
       $self->speedup();
     }
-    if ( ( $status->{setpoint} + 0 ) > $speed ) {
+    if ( ( $status->{fanspd} + 0 ) > $speed ) {
       $self->speeddown();
     }
     sleep(1);

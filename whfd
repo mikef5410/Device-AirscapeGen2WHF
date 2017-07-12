@@ -67,27 +67,27 @@ my $wee = DBI->connect(
 while (1) {
   $fanState = $whf->query();
 
-  if ( $fanState->{setpoint} == 0 ) {
+  if ( $fanState->{fanspd} == 0 ) {
     goto IDLE;
   }
 
-  if ( $fanState->{setpoint} != $lastState->{setPoint} ) {
-    if ( $lastState->{setPoint} == 0 ) {
+  if ( $fanState->{fanspd} != $lastState->{fanspd} ) {
+    if ( $lastState->{fanspd} == 0 ) {
 
       #Fan was just turned on ...
-      syslog( "info", sprintf( "Someone turned the fan on to speed: %d", $fanState->{setpoint} ) );
+      syslog( "info", sprintf( "Someone turned the fan on to speed: %d", $fanState->{fanspd} ) );
       syslog( "info", sprintf("Max speed adjusted to 10") );
       $currentMaxSpeed = 10;
     } else {
 
       #Somebody adjusted the speed. That's the new max ...
-      $currentMaxSpeed = $fanState->{setpoint};
+      $currentMaxSpeed = $fanState->{fanspd};
       syslog( "info", sprintf( "Adjusted max speed to %d", $currentMaxSpeed ) );
     }
   }
 
   my $speed = calcSpeed( $fanState->{inside}, getOutDoorTemp() );
-  if ( $speed != $fanState->{setpoint} ) {
+  if ( $speed != $fanState->{fanspd} ) {
     $lastState = $whf->setSpeed($speed);
     syslog( "info", sprintf( "Auto-Adjusted speed to %d", $speed ) );
   }
