@@ -67,6 +67,9 @@ my $wee = DBI->connect(
 while (1) {
   $fanState = $whf->query();
 
+  if (doNothingHrs()) {
+    goto IDLE;
+  }
   if ( $fanState->{fanspd} == 0 ) {
     goto IDLE;
   }
@@ -90,6 +93,8 @@ while (1) {
   if ( $speed != $fanState->{fanspd} ) {
     $lastState = $whf->setSpeed($speed);
     syslog( "info", sprintf( "Auto-Adjusted speed to %d", $speed ) );
+    sleep(0.5);
+    $lastState = $whf->query();
   }
 
  IDLE:
@@ -108,7 +113,7 @@ sub calcSpeed {
   }
 
   if ( $indoor >= 72 ) { return($currentMaxSpeed); }
-  my $speed = int( $indoor - $targetInside * 2 );
+  my $speed = int( $indoor - $targetInside  );
   $speed = ( $speed <= 0 ) ? 0 : $speed;
   $speed = ( $speed >= $currentMaxSpeed ) ? $currentMaxSpeed : $speed;
   return ($speed);
@@ -130,3 +135,10 @@ sub getOutDoorTemp {
   return ($temp);
 }
 
+sub doNothingHrs {
+  my $hr = ( localtime(time) )[2];
+  if ( ( $hr >= 6 ) || ( $hr < 11 ) ) {
+    return (1);
+  }
+  return (0);
+}

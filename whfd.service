@@ -1,0 +1,12 @@
+[Unit]
+Description=Whole house fan monitor/control service
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/whfd
+PIDFile=/run/whfd/whfd.pid
+RestartSec=5
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
