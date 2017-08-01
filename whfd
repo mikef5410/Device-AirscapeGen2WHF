@@ -92,12 +92,13 @@ while (1) {
   my $speed = calcSpeed( $fanState->{inside}, getOutDoorTemp() );
   if ( $speed != $fanState->{fanspd} ) {
     $lastState = $whf->setSpeed($speed);
-    syslog( "info", sprintf( "Auto-Adjusted speed to %d", $speed ) );
+    syslog( "info", sprintf( "Inside temp: %g °F, Outside temp: %g °F, Auto-Adjusted speed to %d", $fanState->{inside}, getOutDoorTemp(), $speed ) );
     sleep(0.5);
     $lastState = $whf->query();
   }
 
  IDLE:
+  $lastState = $whf->query();
   sleep($MainLoopRate);
 }
 
@@ -106,13 +107,21 @@ sub calcSpeed {
   my $outdoor = shift;
 
   if ( $indoor <= $targetInside ) { return(0); }
-  if ( $indoor <= $outdoor ) { return(0); }
+
+  if ( lateAfternoon() ) {
+    if ($indoor <= $outdoor - 5) { #Allow outside to be warmer by 5°
+      return(0);
+    }
+  } else {
+    if ( $indoor <= $outdoor ) { return(0); }
+  }
 
   if ( $currentMaxSpeed > 8 && inQuietHrs() && ( $indoor < 75 ) ) {
     $currentMaxSpeed = 8;
   }
 
-  if ( $indoor >= 72 ) { return($currentMaxSpeed); }
+  if ( $indoor >= 68 ) { return($currentMaxSpeed); }
+
   my $speed = int( $indoor - $targetInside  );
   $speed = ( $speed <= 0 ) ? 0 : $speed;
   $speed = ( $speed >= $currentMaxSpeed ) ? $currentMaxSpeed : $speed;
@@ -127,6 +136,14 @@ sub inQuietHrs {
   return (0);
 }
 
+sub lateAfternoon {
+  my $hr = ( localtime(time))[2];
+  if (($hr >= 17) && ($hr <= 21)) {
+    return(1);
+  }
+  return(0);
+}
+
 sub getOutDoorTemp {
   my $sth = $wee->prepare($outTempSQL);
   $sth->execute();
@@ -137,7 +154,7 @@ sub getOutDoorTemp {
 
 sub doNothingHrs {
   my $hr = ( localtime(time) )[2];
-  if ( ( $hr >= 6 ) || ( $hr < 11 ) ) {
+  if ( ( $hr >= 5 ) && ( $hr < 11 ) ) {
     return (1);
   }
   return (0);
